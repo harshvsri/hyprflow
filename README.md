@@ -1,147 +1,82 @@
 # Hyprflow
 
-A free, open-source voice-to-text tool for Linux — the WhisperFlow alternative for Hyprland users.
+A free, open-source voice-to-text tool for Linux — the WhisperFlow alternative.
 
 Hyprflow enables seamless speech-to-text input anywhere on your system. Press a keybind to start recording, press again to stop, and your transcribed text is automatically typed into the active window.
 
-## Features
-
-- **GPU-accelerated transcription** via whisper.cpp (CUDA, Vulkan, etc.)
-- **System-wide voice input** — works in any application
-- **Minimal footprint** — lightweight bash script with no background daemon
-- **Waybar integration** — optional visual recording indicator
-- **Auto-paste** — transcribed text is copied to clipboard and pasted automatically
-
 ## Prerequisites
 
-- [Hyprland](https://hyprland.org/) (Wayland compositor)
+- **Wayland compositor** (Hyprland, Sway, etc.)
 - [PipeWire](https://pipewire.org/) (for `pw-record`)
 - [wl-clipboard](https://github.com/bugaevc/wl-clipboard) (for `wl-copy`)
 - [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (compiled with GPU support)
+- [mako](https://github.com/emersion/mako) (or other notification daemon that supports `notify-send`)
 
 ## Installation
 
-### 1. Build whisper.cpp
+### Option A: Automatic Installation (Recommended)
 
-Clone and compile whisper.cpp with your preferred GPU backend:
-
-```bash
-git clone https://github.com/ggerganov/whisper.cpp
-cd whisper.cpp
-```
-
-**For CUDA (NVIDIA):**
-```bash
-cmake -B build -DGGML_CUDA=ON
-cmake --build build --config Release
-```
-
-**For Vulkan:**
-```bash
-cmake -B build -DGGML_VULKAN=ON
-cmake --build build --config Release
-```
-
-**For CPU only:**
-```bash
-cmake -B build
-cmake --build build --config Release
-```
-
-### 2. Download a Whisper model
+Run the install script with your preferred GPU backend:
 
 ```bash
-cd whisper.cpp
-./models/download-ggml-model.sh base.en
+# For NVIDIA (CUDA)
+./install.sh cuda
+
+# For AMD/Intel (Vulkan)
+./install.sh vulkan
+
+# For CPU only (default)
+./install.sh
 ```
 
-Available models: `tiny`, `base`, `small`, `medium`, `large` (append `.en` for English-only variants).
+### Option B: Manual Installation
 
-### 3. Configure Hyprflow
+For manual installation instructions, see the [whisper.cpp documentation](https://github.com/ggerganov/whisper.cpp).
 
-Edit the `hyprflow` script and set the paths to your whisper.cpp binary and model:
+After building whisper.cpp, update the `config` file in the hyprflow directory:
 
 ```bash
-WHISPER_BIN="/path/to/whisper.cpp/build/bin/whisper-cli"
-WHISPER_MODEL="/path/to/whisper.cpp/models/ggml-base.en.bin"
+# Hyprflow Configuration
+WHISPER_DIR="/path/to/whisper.cpp"
+# Make the script executable:
+chmod +x hyprflow
+```
+```bash
 ```
 
-### 4. Add keybind to Hyprland
+## Configuration
 
-Add to your Hyprland config (`~/.config/hypr/hyprland.conf` or a sourced file):
+### 1. Configure notification appearance (optional)
+
+For mako notification daemon, add this to your `~/.config/mako/config`:
+
+```ini
+[app-name=Flow]
+anchor=bottom-center
+width=200
+text-alignment=center
+font=monospace 15
+```
+
+For other notification daemons (dunst, swaync, etc.), configure the app-name `Flow` according to your daemon's format.
+
+### 2. Add keybind
+
+**For Hyprland** (`~/.config/hypr/hyprland.conf`):
 
 ```bash
-$hyprflow = /path/to/hyprflow/hyprflow
-bindd = SUPER, SPACE, Hyprflow, exec, $hyprflow
+bindd = SUPER, SPACE, Hyprflow, exec, /path/to/hyprflow/hyprflow
 ```
 
-## Waybar Integration (Optional)
-
-For a visual recording indicator in Waybar:
-
-### 1. Add the indicator script
-
-Create `~/.config/waybar/indicators/hyprflow-indicator.sh`:
+**For Sway** (`~/.config/sway/config`):
 
 ```bash
-#!/bin/bash
-
-if pgrep -f "rec.*hyprflow" >/dev/null; then
-  echo '{"text": "󱑽 ", "class": "active"}'
-else
-  echo '{"text": ""}'
-fi
+bindsym $mod+Space exec /path/to/hyprflow/hyprflow
 ```
 
-Make it executable:
-```bash
-chmod +x ~/.config/waybar/indicators/hyprflow-indicator.sh
-```
+**For other Wayland compositors:** Add a keybind that executes the `hyprflow` script.
 
-### 2. Add module to Waybar config
-
-In `~/.config/waybar/config.jsonc`:
-
-```jsonc
-{
-  "modules-right": ["custom/hyprflow-indicator", ...],
-  
-  "custom/hyprflow-indicator": {
-    "exec": "$XDG_CONFIG_HOME/waybar/indicators/hyprflow-indicator.sh",
-    "on-click": "hyprflow",
-    "signal": 9,
-    "return-type": "json"
-  }
-}
-```
-
-### 3. Add styling (optional)
-
-In `~/.config/waybar/style.css`:
-
-```css
-#custom-hyprflow-indicator {
-  min-width: 12px;
-  margin: 0 8px;
-}
-
-#custom-hyprflow-indicator.active {
-  color: #f38ba8; /* or your preferred recording color */
-}
-```
-
-## Usage
-
-1. Press `SUPER + SPACE` (or your configured keybind) to **start recording**
-2. Speak your text
-3. Press `SUPER + SPACE` again to **stop recording**
-4. The transcribed text is automatically pasted into the active window
-
-## How It Works
-
-1. **Recording**: Uses `pw-record` to capture audio at 16kHz mono (optimal for Whisper)
-2. **Transcription**: Processes audio through whisper.cpp with GPU acceleration
-3. **Output**: Copies text to clipboard via `wl-copy` and triggers paste via `hyprctl`
+All recordings and transcripts are stored in subdirectories within the hyprflow folder by default.
 
 ## Troubleshooting
 
@@ -155,9 +90,10 @@ In `~/.config/waybar/style.css`:
 
 **Text not pasting:**
 - Ensure `wl-clipboard` is installed
-- Some applications may not support `CTRL+SHIFT+V` — text is still in clipboard
+- For Hyprland: Uses `CTRL+SHIFT+V` shortcut
+- For other compositors: Text is in clipboard, paste manually if auto-paste fails
 
-## Acknowledgments
-
-- [whisper.cpp](https://github.com/ggerganov/whisper.cpp) — High-performance C/C++ port of OpenAI's Whisper
-- [WhisperFlow](https://github.com/lavafroth/whisperflow) — Inspiration for this project
+**Configuration not loading:**
+- Ensure config file exists in the hyprflow directory
+- Check file permissions are readable
+- Verify WHISPER_MODEL path is correct

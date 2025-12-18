@@ -1,76 +1,16 @@
 #!/bin/bash
 
-FLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-#=============================================================================
 # CONFIGURATION - Edit these variables to customize behavior
-
+#=============================================================================
+FLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WHISPER_DIR="${FLOW_DIR}/whisper.cpp"
 WHISPER_BIN="${WHISPER_DIR}/whisper"
 WHISPER_MODEL="${WHISPER_DIR}/models/ggml-base.en.bin"
 
-RECORDING_DIR="${FLOW_DIR}/recordings"
-TRANSCRIPT_DIR="${FLOW_DIR}/transcripts"
-
 STATE_FILE="/tmp/hyprflow.state"
-KEEP_VERSIONS=5
-
+AUDIO_FILE="/tmp/hyprflow.wav"
 #=============================================================================
 
-validate_environment() {
-  local error=0
-
-  # Check if whisper directory exists
-  if [ ! -d "$WHISPER_DIR" ]; then
-    notify-send --urgency=critical "Error: WHISPER_DIR directory not found: $WHISPER_DIR"
-    error=1
-  fi
-
-  # Check if whisper binary exists
-  if [ ! -f "$WHISPER_BIN" ]; then
-    notify-send --urgency=critical "Error: whisper binary not found at: $WHISPER_BIN"
-    error=1
-  fi
-
-  # Check if model exists, if not try to find any model
-  if [ ! -f "$WHISPER_MODEL" ]; then
-    if command -v fd &>/dev/null; then
-      FOUND_MODEL=$(fd -t f 'ggml-.*\.bin$' "$WHISPER_DIR/models" | head -n1)
-      if [ -n "$FOUND_MODEL" ]; then
-        WHISPER_MODEL="$FOUND_MODEL"
-      else
-        notify-send --urgency=critical "Error: No Whisper model found in $WHISPER_DIR/models"
-        error=1
-      fi
-    else
-      notify-send --urgency=critical "Error: Whisper model not found at: $WHISPER_MODEL"
-      error=1
-    fi
-  fi
-
-  # Check for required commands
-  if ! command -v pw-record &>/dev/null; then
-    notify-send --urgency=critical "Error: pw-record not found. Install PipeWire."
-    error=1
-  fi
-
-  if ! command -v wl-copy &>/dev/null; then
-    notify-send --urgency=critical "Error: wl-copy not found. Install wl-clipboard."
-    error=1
-  fi
-
-  # Exit if any validation failed
-  if [ $error -eq 1 ]; then
-    exit 1
-  fi
-
-  # Create necessary directories
-  mkdir -p "$RECORDING_DIR" "$TRANSCRIPT_DIR"
-}
-
-# Run validation
-validate_environment
-
-# Animation frames
 FRAMES=(
   "⣾⣽⣻⢿⡿⣟⣯⣷"
   "⣽⣻⢿⡿⣟⣯⣷⣾"
@@ -83,7 +23,6 @@ FRAMES=(
 )
 
 start_animation() {
-  # Start the animation in a background process
   (
     ID=$(notify-send --print-id --app-name=Flow --expire-time=0 "${FRAMES[0]}")
     echo "NOTIFY_ID=$ID" >>"$STATE_FILE"
@@ -112,53 +51,14 @@ stop_animation() {
   fi
 }
 
-cleanup_old_files() {
-  # Skip cleanup if KEEP_VERSIONS is 0 or not set
-  if [ "$KEEP_VERSIONS" -le 0 ] 2>/dev/null; then
-    return
-  fi
-
-  # Cleanup old recordings
-  if [ -d "$RECORDING_DIR" ]; then
-    local recording_count=$(ls -1 "$RECORDING_DIR"/*.wav 2>/dev/null | wc -l)
-    if [ "$recording_count" -gt "$KEEP_VERSIONS" ]; then
-      ls -1t "$RECORDING_DIR"/*.wav | tail -n +$((KEEP_VERSIONS + 1)) | xargs -r rm -f
-    fi
-  fi
-
-  # Cleanup old transcripts
-  if [ -d "$TRANSCRIPT_DIR" ]; then
-    local transcript_count=$(ls -1 "$TRANSCRIPT_DIR"/*_raw.txt 2>/dev/null | wc -l)
-    if [ "$transcript_count" -gt "$KEEP_VERSIONS" ]; then
-      ls -1t "$TRANSCRIPT_DIR"/*_raw.txt | tail -n +$((KEEP_VERSIONS + 1)) | xargs -r rm -f
-    fi
-  fi
-}
-
 if pgrep -f "pw-record.*hyprflow" >/dev/null 2>&1; then
   pkill -SIGINT -f "pw-record.*hyprflow"
-
-  source "$STATE_FILE"
-  RECORDING_FILE="${RECORDING_DIR}/${TIME}.wav"
-  TRANSCRIPT_FILE="${TRANSCRIPT_DIR}/${TIME}_raw.txt"
-
   stop_animation
-
-  "$WHISPER_BIN" -m "$WHISPER_MODEL" -f "$RECORDING_FILE" --no-prints --no-timestamps >"$TRANSCRIPT_FILE"
-
-  # Trim leading/trailing whitespace and copy to clipboard
-  sed 's/^[[:space:]]*//;s/[[:space:]]*$//' "$TRANSCRIPT_FILE" | tr -d '\n' | wl-copy
-  hyprctl dispatch sendshortcut "CTRL SHIFT, V, activewindow"
+  TEXT=$("$WHISPER_BIN" -m "$WHISPER_MODEL" -f "$AUDIO_FILE" --no-prints --no-timestamps | sed 's/^[[:space:]]*//' | tr -d '\n')
+  echo "$TEXT" | wl-copy
+  wtype -M ctrl -M shift v -m shift -m ctrl
   rm -f "$STATE_FILE"
-
-  # Cleanup old files, keeping only the latest 5 versions
-  cleanup_old_files
 else
-  TIME=$(date +%s)
-  echo "TIME=$TIME" >"$STATE_FILE"
-  RECORDING_FILE="${RECORDING_DIR}/${TIME}.wav"
-
   start_animation
-
-  pw-record --rate 16000 --channels 1 "$RECORDING_FILE" 2>/dev/null &
+  pw-record --rate 16000 --channels 1 "$AUDIO_FILE" 2>/dev/null &
 fi
